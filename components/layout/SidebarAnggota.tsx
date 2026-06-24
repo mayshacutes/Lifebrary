@@ -3,222 +3,81 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  LayoutDashboard,
-  BookOpen,
-  BookCheck,
-  Clock,
-  User,
-  LogOut,
+  LayoutDashboard, BookOpen, BookMarked, History, User, LogOut,
 } from "lucide-react";
 
-interface SidebarAnggotaProps {
-  user?: {
-    name: string;
-    email: string;
-    memberId: string;
-  };
-}
+const navItems = [
+  { label: "Dashboard", href: "/anggota/dashboard", icon: LayoutDashboard },
+  { label: "Katalog Buku", href: "/anggota/katalog", icon: BookOpen },
+  { label: "Peminjaman Saya", href: "/anggota/peminjaman", icon: BookMarked },
+  { label: "Riwayat Peminjaman", href: "/anggota/riwayat", icon: History },
+  { label: "Profil", href: "/anggota/profil", icon: User },
+];
 
-export default function SidebarAnggota({
-  user,
-}: SidebarAnggotaProps) {
+export default function SidebarAnggota() {
   const pathname = usePathname();
 
-  const menuItems = [
-    {
-      label: "Dashboard",
-      icon: LayoutDashboard,
-      href: "/anggota/dashboard",
-    },
-    {
-      label: "Katalog Buku",
-      icon: BookOpen,
-      href: "/anggota/katalog",
-    },
-    {
-      label: "Peminjaman Saya",
-      icon: BookCheck,
-      href: "/anggota/peminjaman",
-    },
-    {
-      label: "Riwayat Peminjaman",
-      icon: Clock,
-      href: "/anggota/riwayat",
-    },
-    {
-      label: "Profil",
-      icon: User,
-      href: "/anggota/profil",
-    },
-  ];
-
-  const isActive = (href: string) => {
-    return pathname === href;
-  };
-
   return (
-    <aside
-      className="
-        w-[300px]
-        h-screen
-        sticky
-        top-0
-        bg-gradient-to-b
-        from-[#7B61FF]
-        to-[#8B73FF]
-        flex
-        flex-col
-        text-white
-        shadow-xl
-      "
-    >
-      {/* LOGO */}
-      <div className="px-8 py-8">
-        <div className="flex items-center gap-4">
-          <div
-            className="
-              w-14
-              h-14
-              rounded-2xl
-              bg-[#D7E73F]
-              flex
-              items-center
-              justify-center
-              text-2xl
-              shadow-lg
-            "
-          >
-            📚
-          </div>
-
+    <aside style={{
+      width: 220, minHeight: "100vh", background: "#6c47e8",
+      display: "flex", flexDirection: "column", position: "fixed",
+      left: 0, top: 0, bottom: 0, zIndex: 50,
+    }}>
+      {/* Brand */}
+      <div style={{
+        display: "flex", alignItems: "center", gap: 10,
+        padding: "24px 20px 20px", borderBottom: "1px solid rgba(255,255,255,0.12)",
+        marginBottom: 8,
+      }}>
+        <div style={{
+          width: 36, height: 36, background: "#d4ef3b", borderRadius: 10,
+          display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+        }}>
+          <BookOpen size={20} color="#1a1a2e" />
+        </div>
+        <div>
           <div>
-            <h1 className="text-xl font-extrabold">
-              Library
-              <span className="text-[#D7E73F]">
-                JesMay
-              </span>
-            </h1>
-
-            <p className="text-white/60 text-sm">
-              Perpustakaan Digital
-            </p>
+            <span style={{ fontSize: 16, fontWeight: 700, color: "#fff" }}>Library</span>
+            <span style={{ fontSize: 16, fontWeight: 700, color: "#d4ef3b" }}>JesMay</span>
           </div>
+          <p style={{ margin: 0, fontSize: 11, color: "rgba(255,255,255,0.5)", lineHeight: 1.3 }}>
+            Perpustakaan Digital
+          </p>
         </div>
       </div>
 
-      {/* USER */}
-      <div className="px-6 pb-6">
-        <div className="bg-white/10 rounded-3xl p-4">
-          <div className="flex items-center gap-3">
-            <div
-              className="
-                w-12
-                h-12
-                rounded-full
-                bg-white/20
-                flex
-                items-center
-                justify-center
-                text-lg
-                font-bold
-              "
-            >
-              {user?.name?.charAt(0) || "A"}
-            </div>
-
-            <div>
-              <h3 className="font-semibold">
-                {user?.name || "Anggota"}
-              </h3>
-
-              <p className="text-xs text-white/70">
-                {user?.email || "anggota@email.com"}
-              </p>
-
-              <p className="text-xs text-[#D7E73F] mt-1">
-                {user?.memberId || "LIB-2026-0001"}
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* MENU */}
-      <nav className="flex-1 px-4">
-        <ul className="space-y-3">
-          {menuItems.map((item) => {
-            const Icon = item.icon;
-            const active = isActive(item.href);
-
-            return (
-              <li key={item.href}>
-                <Link
-                  href={item.href}
-                  className={`
-                    flex
-                    items-center
-                    justify-between
-                    px-5
-                    h-[58px]
-                    rounded-2xl
-                    transition-all
-                    duration-200
-                    ${
-                      active
-                        ? "bg-white/15 text-white"
-                        : "text-white/70 hover:bg-white/10 hover:text-white"
-                    }
-                  `}
-                >
-                  <div className="flex items-center gap-4">
-                    <Icon
-                      size={20}
-                      className={
-                        active
-                          ? "text-[#D7E73F]"
-                          : "text-white/70"
-                      }
-                    />
-
-                    <span className="font-medium">
-                      {item.label}
-                    </span>
-                  </div>
-
-                  {active && (
-                    <div
-                      className="
-                        w-2.5
-                        h-2.5
-                        rounded-full
-                        bg-[#D7E73F]
-                      "
-                    />
-                  )}
-                </Link>
-              </li>
-            );
-          })}
-        </ul>
+      {/* Nav */}
+      <nav style={{ flex: 1, display: "flex", flexDirection: "column", gap: 2, padding: "8px 12px" }}>
+        {navItems.map(({ label, href, icon: Icon }) => {
+          const isActive = pathname === href || pathname.startsWith(href + "/");
+          return (
+            <Link key={href} href={href} style={{
+              display: "flex", alignItems: "center", gap: 10,
+              padding: "10px 12px", borderRadius: 10, textDecoration: "none",
+              color: isActive ? "#fff" : "rgba(255,255,255,0.65)",
+              background: isActive ? "rgba(255,255,255,0.18)" : "transparent",
+              fontWeight: isActive ? 600 : 500, fontSize: 13.5,
+              transition: "background 0.15s",
+            }}>
+              <Icon size={18} style={{ flexShrink: 0 }} />
+              <span style={{ flex: 1 }}>{label}</span>
+              {isActive && (
+                <span style={{ width: 6, height: 6, background: "#d4ef3b", borderRadius: "50%" }} />
+              )}
+            </Link>
+          );
+        })}
       </nav>
 
-      {/* FOOTER */}
-      <div className="p-6 border-t border-white/10">
-        <Link
-          href="/login"
-          className="
-            flex
-            items-center
-            gap-3
-            text-[#D7E73F]
-            font-semibold
-            hover:opacity-80
-            transition
-          "
-        >
+      {/* Logout */}
+      <div style={{ padding: 12, borderTop: "1px solid rgba(255,255,255,0.12)" }}>
+        <Link href="/login" style={{
+          display: "flex", alignItems: "center", gap: 10,
+          padding: "10px 12px", borderRadius: 10, textDecoration: "none",
+          color: "rgba(255,255,255,0.5)", fontSize: 13.5, fontWeight: 500,
+        }}>
           <LogOut size={18} />
-
-          Logout
+          <span>Logout</span>
         </Link>
       </div>
     </aside>
