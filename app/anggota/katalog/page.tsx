@@ -1,262 +1,187 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Search, BookOpen } from "lucide-react";
+import Navbar from "@/components/layout/Navbar";
 import { supabase } from "@/lib/supabase/client";
+import type { Book } from "@/types/buku";
+import type { User } from "@/types/anggota";
+import { Search } from "lucide-react";
 
-interface Book {
-  id: string;
-  title: string;
-  author: string;
-  publisher: string | null;
-  publication_year: number | null;
-  stock: number;
-  description: string | null;
-  isbn: string | null;
+const bookColors = ["#6c47e8", "#d4ef3b", "#ec4899", "#4ade80", "#f97316", "#60a5fa", "#8b5cf6", "#f59e0b", "#ef4444", "#14b8a6"];
+const categories = ["Semua", "Fiksi", "Non-Fiksi", "Sejarah", "Sains", "Sastra", "Biografi"];
+
+function Stars({ count = 4 }: { count?: number }) {
+  return (
+    <div style={{ display: "flex", gap: 2 }}>
+      {Array.from({ length: 5 }).map((_, i) => (
+        <span key={i} style={{ color: i < count ? "#f59e0b" : "#e5e7eb", fontSize: 13 }}>★</span>
+      ))}
+    </div>
+  );
 }
 
 export default function KatalogPage() {
+  const [user, setUser] = useState<User | null>(null);
   const [books, setBooks] = useState<Book[]>([]);
-  const [filteredBooks, setFilteredBooks] = useState<Book[]>([]);
+  const [filtered, setFiltered] = useState<Book[]>([]);
   const [search, setSearch] = useState("");
+  const [activeCategory, setActiveCategory] = useState("Semua");
   const [loading, setLoading] = useState(true);
+  const [borrowing, setBorrowing] = useState<string | null>(null);
+  const [activeLoansCount, setActiveLoansCount] = useState(0);
 
   useEffect(() => {
-    loadBooks();
+    const userId = localStorage.getItem("user_id");
+    if (!userId) { window.location.href = "/login"; return; }
+
+    async function fetchAll() {
+      const { data: userData } = await supabase.from("users").select("*").eq("id", userId).single();
+      setUser(userData);
+
+      const { data: booksData } = await supabase.from("books").select("*").order("title");
+      setBooks(booksData ?? []);
+      setFiltered(booksData ?? []);
+
+      const { count } = await supabase
+        .from("loans").select("*", { count: "exact", head: true })
+        .eq("user_id", userId).in("status", ["borrowed", "extended"]);
+      setActiveLoansCount(count ?? 0);
+      setLoading(false);
+    }
+    fetchAll();
   }, []);
 
   useEffect(() => {
-    const result = books.filter(
-      (book) =>
-        book.title.toLowerCase().includes(search.toLowerCase()) ||
-        book.author.toLowerCase().includes(search.toLowerCase()) ||
-        (book.publisher && book.publisher.toLowerCase().includes(search.toLowerCase()))
-    );
-    setFilteredBooks(result);
-  }, [search, books]);
+    let result = books;
+    if (search) result = result.filter(b => b.title.toLowerCase().includes(search.toLowerCase()) || b.author.toLowerCase().includes(search.toLowerCase()));
+    setFiltered(result);
+  }, [search, activeCategory, books]);
 
-  async function loadBooks() {
-    const { data, error } = await supabase
-      .from("books")
-      .select("*")
-      .order("title");
+  const handleBorrow = async (book: Book) => {
+    const userId = localStorage.getItem("user_id");
+    if (!userId) return;
+    if (activeLoansCount >= 5) return alert("Kamu sudah mencapai batas maksimal 5 buku yang dipinjam.");
+    if (book.stock <= 0) return alert("Stok buku habis.");
 
-    if (!error && data) {
-      setBooks(data);
-      setFilteredBooks(data);
-    }
-    setLoading(false);
-  }
+    setBorrowing(book.id);
+    const dueDate = new Date();
+    dueDate.setDate(dueDate.getDate() + 14);
+    const dueDateStr = dueDate.toISOString().split("T")[0];
 
-  const backgroundColors = [
-    "bg-purple-100",
-    "bg-yellow-100", 
-    "bg-pink-100",
-    "bg-green-100",
-    "bg-orange-100",
-    "bg-blue-100"
-  ];
+    const { data: loan, error: loanError } = await supabase
+      .from("loans")
+      .insert({ user_id: userId, due_date: dueDateStr, status: "borrowed" })
+      .select().single();
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen" style={{ backgroundColor: "#F8F8F8" }}>
-        <div style={{ color: "#836CEC" }} className="text-lg font-semibold">Memuat data...</div>
-      </div>
-    );
-  }
+    if (loanError || !loan) { setBorrowing(null); return alert("Gagal meminjam: " + loanError?.message); }
+
+    const { error: detailError } = await supabase
+      .from("loan_details")
+      .insert({ loan_id: loan.id, book_id: book.id, quantity: 1 });
+
+    if (detailError) { setBorrowing(null); return alert("Gagal menyimpan detail: " + detailError.message); }
+
+    await supabase.from("books").update({ stock: book.stock - 1, updated_at: new Date().toISOString() }).eq("id", book.id);
+
+    setBooks(prev => prev.map(b => b.id === book.id ? { ...b, stock: b.stock - 1 } : b));
+    setActiveLoansCount(prev => prev + 1);
+    setBorrowing(null);
+    alert(`Berhasil meminjam "${book.title}"! Tenggat: ${dueDateStr}`);
+  };
+
+  if (loading) return (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh" }}>
+      <p style={{ color: "#6c47e8", fontWeight: 600 }}>Memuat katalog...</p>
+    </div>
+  );
 
   return (
-    <div style={{ backgroundColor: "#F8F8F8" }} className="min-h-screen p-6">
-      {/* HEADER */}
-      <div className="mb-6">
-        <h1 style={{ color: "#1A1A1A" }} className="text-3xl font-bold">
-          Katalog Buku
-        </h1>
-        <p className="text-gray-500 text-sm mt-1">
-          Temukan buku yang ingin kamu baca
-        </p>
-      </div>
+    <>
+      <Navbar title="Katalog Buku" subtitle="Temukan buku yang ingin kamu baca" userName={user?.full_name ?? ""} userRole="Anggota" />
+      <main style={{ padding: 28, display: "flex", flexDirection: "column", gap: 20 }}>
 
-      {/* SEARCH */}
-      <div 
-        style={{ backgroundColor: "#FFFFFF" }}
-        className="p-4 rounded-2xl shadow-sm mb-5"
-      >
-        <div className="relative">
-          <Search
-            size={20}
-            className="absolute left-4 top-1/2 -translate-y-1/2"
-            style={{ color: "#836CEC" }}
-          />
-          <input
-            type="text"
-            placeholder="Cari judul, penulis, atau penerbit..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            style={{ borderColor: "#836CEC" }}
-            className="
-              w-full
-              border-2
-              rounded-xl
-              py-3
-              pl-12
-              pr-4
-              outline-none
-              text-base
-              focus:ring-2
-              focus:ring-[#836CEC]
-              focus:border-transparent
-            "
-          />
-        </div>
-      </div>
-
-      {/* INFO */}
-      <div className="mb-4 text-sm text-gray-500">
-        Menampilkan{" "}
-        <span style={{ color: "#1A1A1A" }} className="font-semibold">
-          {filteredBooks.length}
-        </span>{" "}
-        buku
-      </div>
-
-      {/* GRID */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-        {filteredBooks.map((book, index) => (
-          <div
-            key={book.id}
-            style={{ backgroundColor: "#FFFFFF" }}
-            className="
-              rounded-2xl
-              overflow-hidden
-              shadow-sm
-              hover:shadow-md
-              transition-shadow
-              duration-200
-            "
-          >
-            {/* COVER */}
-            <div
-              className={`
-                h-32
-                flex
-                items-center
-                justify-center
-                relative
-                ${backgroundColors[index % backgroundColors.length]}
-              `}
-            >
-              <span
-                style={{ 
-                  backgroundColor: "#FFFFFF",
-                  color: "#836CEC" 
-                }}
-                className="
-                  absolute
-                  top-3
-                  left-3
-                  text-xs
-                  px-3
-                  py-1
-                  rounded-full
-                  font-medium
-                "
-              >
-                {book.publisher || "Buku"}
-              </span>
-
-              <div
-                style={{ 
-                  background: "linear-gradient(to bottom, #836CEC, #6B4FE0)" 
-                }}
-                className="
-                  w-14
-                  h-20
-                  rounded-lg
-                  flex
-                  items-center
-                  justify-center
-                  shadow-md
-                "
-              >
-                <BookOpen
-                  size={24}
-                  style={{ color: "#FFFFFF" }}
-                />
-              </div>
-            </div>
-
-            {/* CONTENT */}
-            <div className="p-4">
-              <h3 style={{ color: "#1A1A1A" }} className="font-bold text-lg">
-                {book.title}
-              </h3>
-
-              <p className="text-gray-500 text-sm mt-0.5">
-                {book.author}
-              </p>
-
-              <div className="mt-2 text-xs text-gray-400">
-                {book.publication_year ? `Tahun ${book.publication_year}` : "-"}
-              </div>
-
-              <div className="mt-3">
-                {book.stock > 0 ? (
-                  <>
-                    <div className="text-green-600 text-sm font-medium mb-2">
-                      Stok tersedia ({book.stock})
-                    </div>
-                    <button
-                      style={{ backgroundColor: "#836CEC" }}
-                      className="
-                        w-full
-                        hover:opacity-90
-                        text-white
-                        text-sm
-                        font-medium
-                        py-2.5
-                        rounded-xl
-                        transition-opacity
-                        duration-200
-                      "
-                    >
-                      Pinjam Sekarang
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <div className="text-red-500 text-sm font-medium mb-2">
-                      Tidak tersedia
-                    </div>
-                    <button
-                      disabled
-                      className="
-                        w-full
-                        bg-gray-200
-                        text-gray-500
-                        text-sm
-                        font-medium
-                        py-2.5
-                        rounded-xl
-                        cursor-not-allowed
-                      "
-                    >
-                      Tidak Tersedia
-                    </button>
-                  </>
-                )}
-              </div>
-            </div>
+        {/* Search + Filter */}
+        <div style={{ background: "#fff", borderRadius: 14, padding: "16px 20px", boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, background: "#f4f4f8", borderRadius: 10, padding: "10px 16px", marginBottom: 14 }}>
+            <Search size={16} color="#aaa" />
+            <input
+              placeholder="Cari judul, penulis, atau kategori buku..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              style={{ border: "none", outline: "none", fontSize: 13.5, flex: 1, color: "#333", background: "transparent" }}
+            />
           </div>
-        ))}
-      </div>
-
-      {filteredBooks.length === 0 && (
-        <div className="text-center py-12 text-gray-500">
-          <BookOpen size={40} className="mx-auto mb-3 opacity-50" />
-          <p className="text-base">Tidak ada buku yang ditemukan</p>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 13, color: "#555", fontWeight: 600 }}>Filter:</span>
+            {categories.map(cat => (
+              <button key={cat} onClick={() => setActiveCategory(cat)} style={{
+                padding: "5px 14px", borderRadius: 99, border: "none", cursor: "pointer",
+                fontSize: 12.5, fontWeight: 600,
+                background: activeCategory === cat ? "#6c47e8" : "#f4f4f8",
+                color: activeCategory === cat ? "#fff" : "#555",
+              }}>{cat}</button>
+            ))}
+          </div>
         </div>
-      )}
-    </div>
+
+        <p style={{ margin: 0, fontSize: 13, color: "#888" }}>Menampilkan <strong>{filtered.length}</strong> buku</p>
+
+        {/* Book Grid */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16 }}>
+          {filtered.map((book, i) => (
+            <div key={book.id} style={{
+              background: "#fff", borderRadius: 14,
+              overflow: "hidden", boxShadow: "0 1px 4px rgba(0,0,0,0.06)",
+              display: "flex", flexDirection: "column",
+            }}>
+              {/* Cover area */}
+              <div style={{ position: "relative", background: book.stock === 0 ? "#f9fafb" : `${bookColors[i % bookColors.length]}18`, padding: "28px 0", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                {book.stock === 0 && (
+                  <span style={{
+                    position: "absolute", top: 10, right: 10,
+                    background: "#ef4444", color: "#fff", fontSize: 11, fontWeight: 700,
+                    padding: "3px 8px", borderRadius: 99,
+                  }}>Tidak Tersedia</span>
+                )}
+                <div style={{
+                  width: 70, height: 90, borderRadius: 8,
+                  background: book.stock === 0 ? "#e5e7eb" : bookColors[i % bookColors.length],
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+                }}>
+                  <span style={{ fontSize: 28 }}>📖</span>
+                </div>
+              </div>
+
+              {/* Info */}
+              <div style={{ padding: "14px 16px 16px", flex: 1, display: "flex", flexDirection: "column" }}>
+                <p style={{ margin: "0 0 2px", fontWeight: 700, fontSize: 14, color: "#1a1a2e" }}>{book.title}</p>
+                <p style={{ margin: "0 0 6px", fontSize: 12.5, color: "#888" }}>{book.author}</p>
+                <Stars count={4} />
+                {book.publisher && (
+                  <p style={{ margin: "6px 0 0", fontSize: 11.5, color: "#bbb" }}>{book.publisher} · {book.publication_year}</p>
+                )}
+                <div style={{ marginTop: "auto", paddingTop: 12 }}>
+                  <button
+                    onClick={() => handleBorrow(book)}
+                    disabled={book.stock === 0 || borrowing === book.id || activeLoansCount >= 5}
+                    style={{
+                      width: "100%", padding: "9px", borderRadius: 10, border: "none",
+                      fontSize: 13, fontWeight: 700, cursor: book.stock === 0 || activeLoansCount >= 5 ? "not-allowed" : "pointer",
+                      background: book.stock === 0 ? "#f3f4f6" : "#6c47e8",
+                      color: book.stock === 0 ? "#aaa" : "#fff",
+                      opacity: borrowing === book.id ? 0.7 : 1,
+                    }}
+                  >
+                    {borrowing === book.id ? "Memproses..." : book.stock === 0 ? "Tidak Tersedia" : "Pinjam Sekarang"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+      </main>
+    </>
   );
 }

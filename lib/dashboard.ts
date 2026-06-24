@@ -77,3 +77,54 @@ export async function getWeeklyLoanData() {
     count: counts[i],
   }));
 }
+
+export async function getDashboardData(userId: string) {
+  const today = new Date().toISOString().split("T")[0];
+
+  const [
+    { count: totalBooks },
+    { count: borrowedCount },
+    { data: nearestDue },
+    { data: books },
+    { data: activeLoans },
+  ] = await Promise.all([
+    supabaseServer
+      .from("books")
+      .select("*", { count: "exact", head: true }),
+
+    supabaseServer
+      .from("loans")
+      .select("*", { count: "exact", head: true })
+      .eq("user_id", userId)
+      .in("status", ["borrowed", "extended"]),
+
+    supabaseServer
+      .from("loans")
+      .select("*")
+      .eq("user_id", userId)
+      .in("status", ["borrowed", "extended"])
+      .order("due_date", { ascending: true })
+      .limit(1)
+      .single(),
+
+    supabaseServer
+      .from("books")
+      .select("*")
+      .limit(6),
+
+    supabaseServer
+      .from("loans")
+      .select("*")
+      .eq("user_id", userId)
+      .in("status", ["borrowed", "extended"])
+      .order("loan_date", { ascending: false }),
+  ]);
+
+  return {
+    totalBooks: totalBooks ?? 0,
+    borrowedCount: borrowedCount ?? 0,
+    nearestDue: nearestDue ?? null,
+    books: books ?? [],
+    activeLoans: activeLoans ?? [],
+  };
+}

@@ -1,311 +1,209 @@
-// app/anggota/riwayat/page.tsx
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
+import Navbar from "@/components/layout/Navbar";
 import { supabase } from "@/lib/supabase/client";
-import { Search, Download, ChevronLeft, ChevronRight } from "lucide-react";
+import type { User } from "@/types/anggota";
+import type { Loan } from "@/types/peminjaman";
+import { Search } from "lucide-react";
 
-interface HistoryItem {
-  id: string;
-  title: string;
-  author: string;
-  loan_date: string;
-  return_date: string | null;
-  status: string;
-  isLate: boolean;
-  fine: number;
-  duration: number;
-}
+const bookColors = ["#6c47e8", "#d4ef3b", "#ec4899", "#4ade80", "#f97316", "#60a5fa", "#8b5cf6", "#f59e0b"];
 
-export default function AnggotaRiwayatPage() {
-  const [history, setHistory] = useState<HistoryItem[]>([]);
+export default function RiwayatPeminjamanPage() {
+  const [user, setUser] = useState<User | null>(null);
+  const [allLoans, setAllLoans] = useState<Loan[]>([]);
+  const [filtered, setFiltered] = useState<Loan[]>([]);
+  const [search, setSearch] = useState("");
+  const [activeFilter, setActiveFilter] = useState("Semua");
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState('Semua');
-  const [year, setYear] = useState('2026');
-  const [searchTerm, setSearchTerm] = useState('');
-  const [stats, setStats] = useState({
-    total: 0,
-    onTime: 0,
-    late: 0,
-    totalFine: 0
-  });
-  const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 7;
+
+  const today = new Date().toISOString().split("T")[0];
 
   useEffect(() => {
-    fetchHistory();
-  }, [filter, year]);
+    const userId = localStorage.getItem("user_id");
+    if (!userId) { window.location.href = "/login"; return; }
 
-  const fetchHistory = async () => {
-    try {
-      const { data: userData } = await supabase.auth.getUser();
-      if (!userData?.user) return;
+    async function fetchAll() {
+      const { data: userData } = await supabase.from("users").select("*").eq("id", userId).single();
+      setUser(userData);
 
-      const { data: loans, error } = await supabase
-        .from('loans')
-        .select(`
-          id,
-          loan_date,
-          due_date,
-          status,
-          returns(return_date, late_days, fine),
-          loan_details (
-            book:books (
-              title,
-              author
-            )
-          )
-        `)
-        .eq('user_id', userData.user.id)
-        .neq('status', 'borrowed')
-        .order('loan_date', { ascending: false });
-
-      if (error) throw error;
-
-      const formattedHistory = loans?.map(loan => {
-        const loanDate = new Date(loan.loan_date);
-        const returnDate = loan.returns?.[0]?.return_date;
-        const isLate = loan.returns?.[0]?.late_days > 0 || false;
-        const fine = loan.returns?.[0]?.fine || 0;
-        
-        let duration = 14;
-        if (returnDate) {
-          const diffTime = Math.abs(new Date(returnDate).getTime() - loanDate.getTime());
-          duration = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-        }
-
-        return {
-          id: loan.id,
-          title: (loan.loan_details as any)?.[0]?.book?.title || "Unknown",
-          author: (loan.loan_details as any)?.[0]?.book?.author || "Unknown",
-          loan_date: loan.loan_date,
-          return_date: returnDate,
-          status: loan.status,
-          isLate: isLate,
-          fine: fine,
-          duration: duration
-        };
-      }) || [];
-
-      const filtered = formattedHistory.filter(item => {
-        const yearMatch = new Date(item.loan_date).getFullYear().toString() === year;
-        return yearMatch;
-      });
-
-      setHistory(filtered);
-
-      const total = filtered.length;
-      const onTime = filtered.filter(h => !h.isLate).length;
-      const late = filtered.filter(h => h.isLate).length;
-      const totalFine = filtered.reduce((sum, h) => sum + h.fine, 0);
-
-      setStats({ total, onTime, late, totalFine });
-
-    } catch (error) {
-      console.error('Error fetching history:', error);
-    } finally {
+      const { data: loansData } = await supabase
+        .from("loans")
+        .select(`*, loan_details(quantity, books(title, author)), returns(fine, return_date, late_days)`)
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false });
+      setAllLoans(loansData ?? []);
+      setFiltered(loansData ?? []);
       setLoading(false);
     }
-  };
+    fetchAll();
+  }, []);
 
-  const filteredHistory = history.filter(item => {
-    if (filter === 'Tepat Waktu' && item.isLate) return false;
-    if (filter === 'Terlambat' && !item.isLate) return false;
-    
-    if (searchTerm) {
-      const search = searchTerm.toLowerCase();
-      return item.title.toLowerCase().includes(search) || 
-             item.author.toLowerCase().includes(search);
+  useEffect(() => {
+    let result = allLoans;
+
+    if (activeFilter === "Tepat Waktu") {
+      result = result.filter(l => l.status === "returned" && (l.returns?.late_days ?? 0) === 0);
+    } else if (activeFilter === "Terlambat") {
+      result = result.filter(l => {
+        const isLate = l.status === "borrowed" && l.due_date < today;
+        const wasLate = l.status === "returned" && (l.returns?.late_days ?? 0) > 0;
+        return isLate || wasLate;
+      });
     }
-    return true;
-  });
 
-  const totalPages = Math.ceil(filteredHistory.length / itemsPerPage);
-  const paginatedData = filteredHistory.slice(
-    (currentPage - 1) * itemsPerPage,
-    currentPage * itemsPerPage
+    if (search) {
+      result = result.filter(l =>
+        l.loan_details?.[0]?.books?.title?.toLowerCase().includes(search.toLowerCase())
+      );
+    }
+
+    setFiltered(result);
+  }, [search, activeFilter, allLoans]);
+
+  if (loading) return (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh" }}>
+      <p style={{ color: "#6c47e8", fontWeight: 600 }}>Memuat riwayat...</p>
+    </div>
   );
 
-  const getStatusColor = (item: HistoryItem) => {
-    if (item.isLate) return { bg: '#FEF2F2', text: '#EF4444' };
-    return { bg: '#ECFDF5', text: '#10B981' };
+  const onTime = allLoans.filter(l => l.status === "returned" && (l.returns?.late_days ?? 0) === 0).length;
+  const late = allLoans.filter(l => {
+    const isLate = l.status === "borrowed" && l.due_date < today;
+    const wasLate = l.status === "returned" && (l.returns?.late_days ?? 0) > 0;
+    return isLate || wasLate;
+  }).length;
+  const totalFine = allLoans.reduce((acc, l) => acc + Number(l.returns?.fine ?? 0), 0);
+
+  const formatDate = (d: string) =>
+    new Date(d).toLocaleDateString("id-ID", { day: "2-digit", month: "short", year: "numeric" });
+
+  const getDuration = (loan: Loan) => {
+    const start = new Date(loan.loan_date);
+    const end = loan.returns?.return_date ? new Date(loan.returns.return_date) : new Date(loan.due_date);
+    return Math.ceil((end.getTime() - start.getTime()) / 86400000);
   };
 
-  if (loading) {
-    return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '256px' }}>
-        <div style={{ color: '#6B7280' }}>Loading...</div>
-      </div>
-    );
-  }
+  const getStatus = (loan: Loan) => {
+    if (loan.status === "returned") return (loan.returns?.late_days ?? 0) > 0 ? "Terlambat" : "Tepat Waktu";
+    if (loan.status === "borrowed") return loan.due_date < today ? "Terlambat" : "Aktif";
+    return "Diperpanjang";
+  };
 
   return (
-    <div style={{ backgroundColor: '#F5F6FA', minHeight: '100vh' }}>
-      <div style={{ padding: '24px' }}>
-        {/* Header */}
-        <div style={{ marginBottom: '24px' }}>
-          <h1 style={{ fontSize: '24px', fontWeight: 'bold', color: '#1F2937' }}>Riwayat Peminjaman</h1>
-          <p style={{ fontSize: '14px', color: '#9CA3AF' }}>Rekam jejak semua peminjaman kamu</p>
+    <>
+      <Navbar title="Riwayat Peminjaman" subtitle="Rekam jejak semua peminjaman kamu" userName={user?.full_name ?? ""} userRole="Anggota" />
+      <main style={{ padding: 28, display: "flex", flexDirection: "column", gap: 20 }}>
+
+        {/* Stat Cards */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14 }}>
+          {[
+            { label: "Total Dipinjam", value: allLoans.length, color: "#6c47e8" },
+            { label: "Tepat Waktu", value: onTime, color: "#16a34a" },
+            { label: "Pernah Terlambat", value: late, color: "#f97316" },
+            { label: "Total Denda", value: `Rp ${(totalFine / 1000).toFixed(0)}K`, color: "#ef4444" },
+          ].map(({ label, value, color }) => (
+            <div key={label} style={{ background: "#fff", borderRadius: 12, padding: "18px 20px", boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+              <p style={{ margin: 0, fontSize: 24, fontWeight: 700, color }}>{value}</p>
+              <p style={{ margin: "4px 0 0", fontSize: 12.5, color: "#888" }}>{label}</p>
+            </div>
+          ))}
         </div>
 
-        {/* Stats */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px', marginBottom: '24px' }}>
-          <div style={{ backgroundColor: '#FFFFFF', borderRadius: '12px', boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.05)', border: '1px solid #E5E7EB', padding: '12px 16px' }}>
-            <p style={{ fontSize: '12px', color: '#6B7280' }}>Total Dipinjam</p>
-            <p style={{ fontSize: '24px', fontWeight: 'bold', color: '#1F2937' }}>{stats.total}</p>
+        {/* Search + Filter */}
+        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 10, background: "#fff", borderRadius: 10, padding: "10px 16px", border: "1px solid #e5e7eb" }}>
+            <Search size={16} color="#aaa" />
+            <input
+              placeholder="Cari judul buku..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              style={{ border: "none", outline: "none", fontSize: 13.5, flex: 1, color: "#333", background: "transparent" }}
+            />
           </div>
-          <div style={{ backgroundColor: '#FFFFFF', borderRadius: '12px', boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.05)', border: '1px solid #E5E7EB', padding: '12px 16px' }}>
-            <p style={{ fontSize: '12px', color: '#6B7280' }}>Tepat Waktu</p>
-            <p style={{ fontSize: '24px', fontWeight: 'bold', color: '#10B981' }}>{stats.onTime}</p>
-          </div>
-          <div style={{ backgroundColor: '#FFFFFF', borderRadius: '12px', boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.05)', border: '1px solid #E5E7EB', padding: '12px 16px' }}>
-            <p style={{ fontSize: '12px', color: '#6B7280' }}>Pernah Terlambat</p>
-            <p style={{ fontSize: '24px', fontWeight: 'bold', color: '#EF4444' }}>{stats.late}</p>
-          </div>
-          <div style={{ backgroundColor: '#FFFFFF', borderRadius: '12px', boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.05)', border: '1px solid #E5E7EB', padding: '12px 16px' }}>
-            <p style={{ fontSize: '12px', color: '#6B7280' }}>Total Denda</p>
-            <p style={{ fontSize: '24px', fontWeight: 'bold', color: '#EF4444' }}>Rp {stats.totalFine.toLocaleString()}</p>
-          </div>
-        </div>
-
-        {/* Filters */}
-        <div style={{ display: 'flex', flexDirection: 'row', gap: '12px', marginBottom: '24px' }}>
-          <div style={{ display: 'flex', gap: '6px' }}>
-            {['Semua', 'Tepat Waktu', 'Terlambat'].map((status) => (
-              <button
-                key={status}
-                onClick={() => setFilter(status)}
-                style={{ padding: '6px 16px', borderRadius: '8px', fontSize: '14px', fontWeight: '500', border: 'none', cursor: 'pointer', backgroundColor: filter === status ? '#4F46E5' : '#F3F4F6', color: filter === status ? '#FFFFFF' : '#4B5563' }}
-              >
-                {status}
-              </button>
-            ))}
-          </div>
-          
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <select
-              value={year}
-              onChange={(e) => setYear(e.target.value)}
-              style={{ padding: '6px 12px', border: '1px solid #D1D5DB', borderRadius: '8px', fontSize: '14px', backgroundColor: '#FFFFFF' }}
-            >
-              <option value="2026">2026</option>
-              <option value="2025">2025</option>
-              <option value="2024">2024</option>
-            </select>
-            <button style={{ padding: '6px 16px', border: '1px solid #D1D5DB', borderRadius: '8px', fontSize: '14px', backgroundColor: '#FFFFFF', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <Download style={{ width: '16px', height: '16px' }} />
-              Export
-            </button>
-          </div>
-        </div>
-
-        {/* Search */}
-        <div style={{ position: 'relative', marginBottom: '24px' }}>
-          <Search style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', width: '16px', height: '16px', color: '#9CA3AF' }} />
-          <input
-            type="text"
-            placeholder="Cari judul atau penulis..."
-            style={{ width: '100%', padding: '8px 12px 8px 36px', border: '1px solid #D1D5DB', borderRadius: '12px', fontSize: '14px', backgroundColor: '#FFFFFF' }}
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
+          {["Semua", "Tepat Waktu", "Terlambat"].map(f => (
+            <button key={f} onClick={() => setActiveFilter(f)} style={{
+              padding: "9px 16px", borderRadius: 10, border: "none", cursor: "pointer",
+              fontSize: 13, fontWeight: 600,
+              background: activeFilter === f ? "#6c47e8" : "#fff",
+              color: activeFilter === f ? "#fff" : "#555",
+              boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
+            }}>{f}</button>
+          ))}
+          <button style={{
+            padding: "9px 16px", borderRadius: 10, background: "#6c47e8", color: "#fff",
+            border: "none", fontSize: 13, fontWeight: 600, cursor: "pointer",
+            display: "flex", alignItems: "center", gap: 6,
+          }}>
+            ⬇ Export
+          </button>
         </div>
 
         {/* Table */}
-        <div style={{ backgroundColor: '#FFFFFF', borderRadius: '12px', boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.05)', border: '1px solid #E5E7EB', overflow: 'hidden' }}>
-          <div style={{ padding: '8px 16px', borderBottom: '1px solid #E5E7EB', backgroundColor: '#F9FAFB' }}>
-            <p style={{ fontSize: '14px', color: '#6B7280', fontWeight: '500' }}>
-              {filteredHistory.length} transaksi
-            </p>
+        <div style={{ background: "#fff", borderRadius: 14, overflow: "hidden", boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "18px 24px", borderBottom: "1px solid #f3f4f6" }}>
+            <p style={{ margin: 0, fontWeight: 700, fontSize: 15, color: "#1a1a2e" }}>Semua Riwayat</p>
+            <span style={{ fontSize: 13, color: "#aaa" }}>{filtered.length} transaksi</span>
           </div>
-          <table style={{ width: '100%', fontSize: '14px', borderCollapse: 'collapse' }}>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
-              <tr style={{ backgroundColor: '#F9FAFB', borderBottom: '1px solid #E5E7EB' }}>
-                <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '500', color: '#6B7280', textTransform: 'uppercase' }}>No</th>
-                <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '500', color: '#6B7280', textTransform: 'uppercase' }}>Buku</th>
-                <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '500', color: '#6B7280', textTransform: 'uppercase' }}>Tgl Pinjam</th>
-                <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '500', color: '#6B7280', textTransform: 'uppercase' }}>Tgl Kembali</th>
-                <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '500', color: '#6B7280', textTransform: 'uppercase' }}>Durasi</th>
-                <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '500', color: '#6B7280', textTransform: 'uppercase' }}>Denda</th>
-                <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '500', color: '#6B7280', textTransform: 'uppercase' }}>Status</th>
+              <tr style={{ borderBottom: "1px solid #f3f4f6", background: "#fafafa" }}>
+                {["No", "Buku", "Tgl Pinjam", "Tgl Kembali", "Durasi", "Denda", "Status"].map(h => (
+                  <th key={h} style={{ textAlign: "left", padding: "10px 16px", fontSize: 12, color: "#aaa", fontWeight: 600 }}>{h}</th>
+                ))}
               </tr>
             </thead>
-            <tbody style={{ borderBottom: '1px solid #E5E7EB' }}>
-              {paginatedData.map((item, index) => {
-                const colors = getStatusColor(item);
+            <tbody>
+              {filtered.length === 0 ? (
+                <tr>
+                  <td colSpan={7} style={{ padding: "32px", textAlign: "center", color: "#aaa", fontSize: 14 }}>
+                    Tidak ada riwayat ditemukan
+                  </td>
+                </tr>
+              ) : filtered.map((loan, i) => {
+                const book = loan.loan_details?.[0]?.books;
+                const status = getStatus(loan);
+                const fine = Number(loan.returns?.fine ?? 0);
+                const statusColors: Record<string, [string, string]> = {
+                  "Tepat Waktu": ["#f0fdf4", "#16a34a"],
+                  "Terlambat": ["#fef2f2", "#ef4444"],
+                  "Aktif": ["#f0eeff", "#6c47e8"],
+                  "Diperpanjang": ["#fef9c3", "#92400e"],
+                };
+                const [sbg, sc] = statusColors[status] ?? ["#f3f4f6", "#555"];
                 return (
-                  <tr key={item.id} style={{ borderBottom: '1px solid #F3F4F6' }}>
-                    <td style={{ padding: '12px 16px', color: '#6B7280' }}>{(currentPage - 1) * itemsPerPage + index + 1}</td>
-                    <td style={{ padding: '12px 16px' }}>
-                      <p style={{ fontWeight: '500', color: '#1F2937' }}>{item.title}</p>
-                      <p style={{ fontSize: '12px', color: '#9CA3AF' }}>{item.author}</p>
+                  <tr key={loan.id} style={{ borderBottom: "1px solid #f9fafb" }}>
+                    <td style={{ padding: "14px 16px", fontSize: 13.5, color: "#aaa" }}>{i + 1}</td>
+                    <td style={{ padding: "14px 16px" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        <div style={{ width: 32, height: 40, borderRadius: 6, background: bookColors[i % bookColors.length], display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                          <span style={{ fontSize: 12 }}>📖</span>
+                        </div>
+                        <div>
+                          <p style={{ margin: 0, fontWeight: 600, fontSize: 13.5, color: "#1a1a2e" }}>{book?.title ?? "-"}</p>
+                          <p style={{ margin: "2px 0 0", fontSize: 12, color: "#aaa" }}>{book?.author ?? "-"}</p>
+                        </div>
+                      </div>
                     </td>
-                    <td style={{ padding: '12px 16px', color: '#6B7280' }}>
-                      {new Date(item.loan_date).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })}
+                    <td style={{ padding: "14px 16px", fontSize: 13, color: "#555" }}>{formatDate(loan.loan_date)}</td>
+                    <td style={{ padding: "14px 16px", fontSize: 13, color: "#555" }}>
+                      {loan.returns?.return_date ? formatDate(loan.returns.return_date) : "-"}
                     </td>
-                    <td style={{ padding: '12px 16px', color: '#6B7280' }}>
-                      {item.return_date 
-                        ? new Date(item.return_date).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })
-                        : '-'
-                      }
+                    <td style={{ padding: "14px 16px", fontSize: 13, color: "#555" }}>{getDuration(loan)} hari</td>
+                    <td style={{ padding: "14px 16px", fontSize: 13, fontWeight: 600, color: fine > 0 ? "#ef4444" : "#aaa" }}>
+                      {fine > 0 ? `Rp ${fine.toLocaleString("id-ID")}` : "-"}
                     </td>
-                    <td style={{ padding: '12px 16px', color: '#6B7280' }}>{item.duration} hari</td>
-                    <td style={{ padding: '12px 16px', color: '#EF4444' }}>
-                      {item.fine > 0 ? `Rp ${item.fine.toLocaleString()}` : '-'}
-                    </td>
-                    <td style={{ padding: '12px 16px' }}>
-                      <span style={{ padding: '2px 12px', borderRadius: '9999px', fontSize: '12px', fontWeight: '500', backgroundColor: colors.bg, color: colors.text }}>
-                        {item.isLate ? 'Terlambat' : 'Tepat Waktu'}
-                      </span>
+                    <td style={{ padding: "14px 16px" }}>
+                      <span style={{ padding: "4px 12px", borderRadius: 99, fontSize: 12, fontWeight: 600, background: sbg, color: sc }}>{status}</span>
                     </td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
-          
-          {/* Pagination */}
-          {totalPages > 1 && (
-            <div style={{ padding: '12px 16px', borderTop: '1px solid #E5E7EB', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <p style={{ fontSize: '14px', color: '#6B7280' }}>
-                Menampilkan 1–{Math.min(itemsPerPage, filteredHistory.length)} dari {filteredHistory.length} riwayat
-              </p>
-              <div style={{ display: 'flex', gap: '4px' }}>
-                <button
-                  onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
-                  disabled={currentPage === 1}
-                  style={{ padding: '6px 12px', border: '1px solid #D1D5DB', borderRadius: '8px', backgroundColor: '#FFFFFF', cursor: currentPage === 1 ? 'not-allowed' : 'pointer', opacity: currentPage === 1 ? 0.5 : 1 }}
-                >
-                  <ChevronLeft style={{ width: '16px', height: '16px' }} />
-                </button>
-                {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                  let pageNum = i + 1;
-                  if (totalPages > 5 && currentPage > 3) {
-                    pageNum = currentPage - 2 + i;
-                  }
-                  if (pageNum > totalPages) return null;
-                  return (
-                    <button
-                      key={pageNum}
-                      onClick={() => setCurrentPage(pageNum)}
-                      style={{ padding: '6px 14px', borderRadius: '8px', border: '1px solid', backgroundColor: currentPage === pageNum ? '#4F46E5' : '#FFFFFF', color: currentPage === pageNum ? '#FFFFFF' : '#4B5563', borderColor: currentPage === pageNum ? '#4F46E5' : '#D1D5DB', cursor: 'pointer' }}
-                    >
-                      {pageNum}
-                    </button>
-                  );
-                })}
-                <button
-                  onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
-                  disabled={currentPage === totalPages}
-                  style={{ padding: '6px 12px', border: '1px solid #D1D5DB', borderRadius: '8px', backgroundColor: '#FFFFFF', cursor: currentPage === totalPages ? 'not-allowed' : 'pointer', opacity: currentPage === totalPages ? 0.5 : 1 }}
-                >
-                  <ChevronRight style={{ width: '16px', height: '16px' }} />
-                </button>
-              </div>
-            </div>
-          )}
         </div>
-      </div>
-    </div>
+
+      </main>
+    </>
   );
 }

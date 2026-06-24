@@ -1,17 +1,12 @@
-import SidebarMember from "@/components/layout/SidebarAnggota";
+import SidebarAnggota from "@/components/layout/SidebarAnggota";
 
-export default function MemberLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default function AnggotaLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex bg-gray-100 min-h-screen">
-      <SidebarMember />
-
-      <main className="flex-1 p-8">
+    <div style={{ display: "flex", minHeight: "100vh", background: "#f4f4f8" }}>
+      <SidebarAnggota />
+      <div style={{ marginLeft: 220, flex: 1, display: "flex", flexDirection: "column" }}>
         {children}
-      </main>
+      </div>
     </div>
   );
 }
